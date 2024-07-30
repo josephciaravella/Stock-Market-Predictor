@@ -78,50 +78,100 @@ def display_ticker_data(ticker):
 
     return df
 
-display_ticker_data("AMD")
+# download_ticker_data("alphavantage", "AMD")
+# display_ticker_data("AMD")
 
 
-# def split_data(ticker):
+def train_model(ticker):
 
-#     df = download_ticker_data("alphavantage", ticker)
+    df = download_ticker_data("alphavantage", ticker)
 
-#     # First calculate the mid prices from the highest and lowest
-#     high_prices = df.loc[:,'High'].as_matrix()
-#     low_prices = df.loc[:,'Low'].as_matrix()
-#     mid_prices = (high_prices+low_prices)/2.0
+    # First calculate the mid prices from the highest and lowest
+    high_prices = df.loc[:,'High'].as_matrix()
+    low_prices = df.loc[:,'Low'].as_matrix()
+    mid_prices = (high_prices+low_prices)/2.0
 
-#     # This is a common technique used in machine learning to split a dataset into a training set and a testing set.
-#     # The training set is used to train a model, while the testing set is used to evaluate the performance of the model on unseen data.
-#     train_data = mid_prices[:11000]
-#     test_data = mid_prices[11000:]
+    # This is a common technique used in machine learning to split a dataset into a training set and a testing set.
+    # The training set is used to train a model, while the testing set is used to evaluate the performance of the model on unseen data.
+    train_data = mid_prices[:11000]
+    test_data = mid_prices[11000:]
 
-#     # Scale the data to be between 0 and 1
-#     # When scaling remember! You normalize both test and train data with respect to training data
-#     # Because you are not supposed to have access to test data
-#     scaler = MinMaxScaler()
+    # Scale the data to be between 0 and 1
+    # When scaling remember! You normalize both test and train data with respect to training data
+    # Because you are not supposed to have access to test data
+    scaler = MinMaxScaler()
 
-#     # The code then reshapes the training and test data to be a single column using the reshape() function with the argument -1, which means that the number of rows is inferred from the length of the array and the number of columns is set to 1.
-#     # This is necessary because the MinMaxScaler function expects a 2D array as input.
-#     train_data = train_data.reshape(-1,1)
-#     test_data = test_data.reshape(-1,1)
+    # The code then reshapes the training and test data to be a single column using the reshape() function with the argument -1, which means that the number of rows is inferred from the length of the array and the number of columns is set to 1.
+    # This is necessary because the MinMaxScaler function expects a 2D array as input.
+    train_data = train_data.reshape(-1,1)
+    test_data = test_data.reshape(-1,1)
 
-#     # Train the Scaler with training data and smooth data
-#     smoothing_window_size = 2500
-#     for di in range(0,10000,smoothing_window_size):
-#         # Within each iteration, the fit method of the scaler object is called on a slice of the training data, from di to di+smoothing_window_size.
-#         # This trains the scaler on that portion of the data.
-#         scaler.fit(train_data[di:di+smoothing_window_size,:])
+    # Train the Scaler with training data and smooth data
+    smoothing_window_size = 2500
+    for di in range(0,10000,smoothing_window_size):
+        # Within each iteration, the fit method of the scaler object is called on a slice of the training data, from di to di+smoothing_window_size.
+        # This trains the scaler on that portion of the data.
+        scaler.fit(train_data[di:di+smoothing_window_size,:])
 
-#         # Then, the transform method of the scaler is called on the same slice of the training data, which normalizes the data using the parameters learned during the fit step.
-#         # The normalized data is then assigned back to the same slice of the training data.
-#         train_data[di:di+smoothing_window_size,:] = scaler.transform(train_data[di:di+smoothing_window_size,:])
+        # Then, the transform method of the scaler is called on the same slice of the training data, which normalizes the data using the parameters learned during the fit step.
+        # The normalized data is then assigned back to the same slice of the training data.
+        train_data[di:di+smoothing_window_size,:] = scaler.transform(train_data[di:di+smoothing_window_size,:])
 
-#     # You normalize the last bit of remaining data
-#     scaler.fit(train_data[di+smoothing_window_size:,:])
-#     train_data[di+smoothing_window_size:,:] = scaler.transform(train_data[di+smoothing_window_size:,:])
+    # You normalize the last bit of remaining data
+    scaler.fit(train_data[di+smoothing_window_size:,:])
+    train_data[di+smoothing_window_size:,:] = scaler.transform(train_data[di+smoothing_window_size:,:])
 
-#     # Reshape both train and test data
-#     train_data = train_data.reshape(-1)
+    # Reshape both train and test data
+    train_data = train_data.reshape(-1)
 
-#     # Normalize test data
-#     test_data = scaler.transform(test_data).reshape(-1)
+    # Normalize test data
+    test_data = scaler.transform(test_data).reshape(-1)
+
+    # After both reshapes, both train_data and test_data are converted back to one dimensional arrays 
+
+    # Now perform exponential moving average smoothing
+    # So the data will have a smoother curve than the original ragged data
+    EMA = 0.0
+    gamma = 0.1
+    for ti in range(11000):
+        EMA = gamma*train_data[ti] + (1-gamma)*EMA
+        train_data[ti] = EMA
+
+    # Used for visualization and test purposes
+    all_mid_data = np.concatenate([train_data,test_data],axis=0)
+
+    window_size = 100
+    N = train_data.size
+
+    run_avg_predictions = []
+    run_avg_x = []
+
+    mse_errors = []
+
+    running_mean = 0.0
+    run_avg_predictions.append(running_mean)
+
+    decay = 0.5
+
+    for pred_idx in range(1,N):
+
+        if pred_idx >= N:
+            date = dt.datetime.strptime(k, '%Y-%m-%d').date() + dt.timedelta(days=1)
+        else:
+            date = df.loc[pred_idx,'Date']
+
+        running_mean = running_mean*decay + (1.0-decay)*train_data[pred_idx-1]
+        run_avg_predictions.append(running_mean)
+        mse_errors.append((run_avg_predictions[-1]-train_data[pred_idx])**2)
+        run_avg_x.append(date)
+
+    print('MSE error for EMA averaging: %.5f'%(0.5*np.mean(mse_errors)))
+   
+    plt.figure(figsize = (18,9))
+    plt.plot(range(df.shape[0]),all_mid_data,color='b',label='True')
+    plt.plot(range(0,N),run_avg_predictions,color='orange', label='Prediction')
+    #plt.xticks(range(0,df.shape[0],50),df['Date'].loc[::50],rotation=45)
+    plt.xlabel('Date')
+    plt.ylabel('Mid Price')
+    plt.legend(fontsize=18)
+    plt.show()
